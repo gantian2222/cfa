@@ -1,0 +1,227 @@
+1.date_format(date,%Y%m%d) 讲date转换为Str
+str_to_date(str,%Y%m%d)
+substr(str,1,size)
+trim()
+length()
+round(number,1/-1)
+rand()  0-1
+
+2.分组函数聚合函数:sum,avg,count,max,min,
+只能用于 where 之前，会自动忽略空值
+
+select count(age) from person where age is null;==>0会过滤掉空的
+
+3.distinct必须放在所有字段前面，如果后面有多个字段则为联合去重
+
+4.
+group by是先对where后的结果进行分组再执行聚合函数返回
+select name, max(age)as age from person group by name;
+只能select出分组的 字段
+select name, max(age)as age from person group by name;
+
+5.
+having是对分组的数据再进行过滤，比如平均薪水大于20000
+select avg(sal) avsal 
+from person 
+group by job 
+having avsal>20000
+where是用在分组之前，having是用在分组执行聚合函数之后
+
+selec 
+	XXXX
+from
+	XXXX
+where
+	XXXX
+group by
+	XXXX
+having
+	XXXX
+order by
+	XXXX
+limit 1,2;
+
+多表查询
+1）
+select * from p,n ==>返回结果是两张表记录乘积。n*m 笛卡尔积
+可以通过where 进行过滤
+select * from p (inner) join n on p.name=n.name 两边都有才返回，就是内连接
+2）
+内连接
+	select * from p (inner) join n on p.name=n.name 两边都有才返回
+外连接
+全连接
+
+Paxos算法的主要应就是实现一个分布式的状态机，
+State Machine Approach的一个关键点是，分发到每台状态机的每笔用户输入的顺序都必须是一样的，在有一个单点专门接受请求并复制分发时，是可以保证这点的
+
+一个最简单的拒绝策略是先来后到,
+那么将永远不会出现两个进程的v值相等的情况，即v永远无法被决定。更正式的说，这个协议不满足活性，活性要求协议总能达成一致
+
+---------------------
+
+为什么要过半
+因为两个过半集合一定会有一个相交的点，因为为了迅速达成一致性，我们在准备阶段，acceptor会返回已经接受的最大提案的value，
+我们的proposar会将其作为新提案的的value,从而下一批过半机器就达成相同的一致。
+
+聚合函数
+Stream.aggregate()==>对每个Batch进行聚合，如果前一个是groupBy(),则是对每个分区进行聚合
+stream.persistentAggregate()==>对全部Batch进行聚合，并将结果持久化
+聚合器:Aggregator,CombinerAggregator,ReducerAggregator
+CombinerAggregator会预处理每一个接收到的tuple，将预处理后的值传入combine函数来计算直到最后一个tuple到达，当所有tuple处理完时，CombinerAggregator会发射zero函数的输出
+ReducerAggregator通过init方法提供一个初始值，然后为每个输入的tuple迭代这个值，最后生产处一个唯一的tuple输出这个值
+函数stateQuery可以在state里面进行查询，查询类extends BaseQueryFunction
+更新State:extends BaseStateUpdater,通过partitionPersist函数进行更新调用
+Trident有另外一种更新State的方法叫做persistentAggregate，persistentAggregate是在partitionPersist之上的另外一层抽象, 它知道怎么去使用一个Trident 聚合器来更新State
+public class TransactionalMap<T> implements MapState<T>   外层函数调用的是该函数的multiGet,multiPut,multiUpdate,其中multiGet是从持久化中获取到取出TransactionValue,去掉tx,只返回
+Value,multiPut是将Value包装成TransactionalValue,加上tx调用用户自定义的IBackingMap接口实现类的multiPut进行持久化。
+IBackingMap接口实现类：
+multiGet：用户自定义持久化，持久化的是TransactionalValue，对我们的value添加了tx
+multiPut:用户自定义查询，查询出来的是TransactionalValue，对我们的value添加了tx
+TransactionalMap
+multiGet：用户使用的，存Value,该方法会构造一个TransactionalValue，替value添加了tx，然后调用IBackingMap接口实现类的multiGet持久化TransactionalValue
+multiPut:用户使用的查询，该方法会调用IBackingMap接口实现类的multiPut查询出来TransactionalValue，然后取消tx返回给用户value
+multiUpdate：每次调用persistantAggregate时会调用该方法，先进行multiGet，判断是否有，有的话再判断tx，最后再调用聚合器得到输出值通过multiPut持久化到数据库或内存
+
+
+TreeMap<Long, TransactionStatus> _activeTx = new TreeMap<Long, TransactionStatus>();
+TreeMap<Long, Integer> _attemptIds;
+
+private SpoutOutputCollector _collector;
+Long _currTransaction;
+int _maxTransactionActive;
+
+
+
+private static class TransactionStatus {
+        TransactionAttempt attempt;
+        AttemptStatus status;
+		}
+		
+		
+private static enum AttemptStatus {
+        PROCESSING,
+        PROCESSED,
+        COMMITTING
+    }
+	
+	
+Ack bolt,接受三个流，init-stream,ack-stream,fail-stream,
+通过MessageId生成RootId,每个task也会为其生成一个消息Id
+spout发送init-stream，rootId和ackValue
+为了减少与Acker Bolt通信的次数，此处进行了 优化。标记消息的跟踪值用来表示在该Bolt上由标记消息所衍生出来的消息的异或值。
+例 如，输入消息乃产生T2、T3f(lT4,则输人消息T,的跟踪值为T2ATVT4,在对消息乃进行Ack 操作时，发送给Acker Bolt的值为<RootId,T2AT3AT4>
+
+// 老数据
+{
+    transactionId：3
+    urlId:99
+    prevReach:2
+    reach:3
+}
+
+// 新到数据
+{
+    //注意事务ID为3，和老数据中的事务ID相同
+    transactionId:3
+    urlId:99
+    reach:5
+}
+非透明事务，多保存一个前一个结果
+因为当相同txid来的时候，没法判断，则舍弃数据库已更新的，采取现在这个结果累加到上一个结果上
+// 更新后数据
+{
+    transactionId:3
+    urlId:99
+    //这个值不变
+    prevReach:2
+    //2 + 5 = 7
+    reach:7
+}
+我们应该这么做，考虑到新到数据的事务ID和存储中的事务ID一致，所以这批数据可能被分别或者异步处理了，但是，这批数据对应的事务ID永远是同一个，那么，即使这批数据中的A部分先处理了，由于大家都是一个事务ID，那么A部分的前值是可靠的。
+所以，我们将依靠prevReach而不是Reach的值来更新
+
+numPartitions方法会在ITransactionalSpout.initializeTransaction方法中调用，返回每 一个事务所包含的分区数目
+isReady方法与ITransactionalSpout.isReady方法的含义相同，表7K数据是否已经准备好 以便开始一个新的事务
+emitPartitionBatchNew方法以及emitPartitionBatch方法会在ITransactionalSpout.emit Batch中被调用。
+emitPartitionBatchNew方法会在一个事务首次进行尝试时被调用，它会 基于当前分区以及事务，计算获得该分区所对应的元数据
+emitPartitionBatch会在重传时被调用。当然，在具体的实现中，emitPartitionBatchNew 方法可以基于emitPartitionBatch方法来实现。区别在于，
+emitPartitionBatch方法知道 该分区在当前事务上面的元数据是什么，而emitPartitionBatchNew则需要通过计算来得 到该元数据
+for(int i=_index;i < partitions;i+=_numTasks)
+_numTasks是并行度2，_index是消息发送节点的索引
+则Emiter0,Emiter0会发送0，2，4，6，8，Emiter1会发送1，3，5，7，9分区
+
+第4行设置Topology中的协调Spout节点。它利用TransactionalSpoutCoordinator对 ITransationalSpout中的协调Spout接口进行封装执行。
+根据之前的分析可以知道，TransactionalSpoutCoordinator实现了IRichSpout接口。 
+□ 第10-15行用于设置Topology中的消息发送节点。首先，利用TransactionalSpoutBatchExecutor对ITransactionalSpout中的消息发送接口进行封装，
+然后，再利用CoordinatedBolt进行进一步的封装。在事务Topology中执行的所有Bolt均为CoordinatedBolt类型 3
+
+
+
+prepare,init,aggregate,complete
+_agg.aggregate(processorContext.state[_context.getStateIndex()], _projection.create(tuple), _collector);
+
+ChainedAggregatorImpl->有个Aggregate[]
+ChainedAggregatorImpl中的中间结果
+public class ChainedResult {
+    Object[] objs;==》result数组
+    TridentCollector[] collectors;==>Aggregator aggregator方法的TridentCollector参数
+    }
+	
+CombinerAggregatorCombineImpl->有个用户传入的Aggregate	
+CombinerAggregatorCombineImpl中的中间结果	
+public class Result {
+    public Object obj;==》自定义的aggregator的中间结果
+}
+自定义的Aggregator的中间结果
+int
+所以在执行器上下文中存有ChainedResult,在ChaiedResult中存有每个aggregator执行的结果以及中间执行结果
+从上到下调用aggregate,中间结果从下到上传递存放到执行器上下文中
+
+GroupedAggregator的中间结果是一个Object[] arr
+GroupCollector groupColl = (GroupCollector) arr[0];==>Aggregator aggregator方法的TridentCollector参数
+Map<List, Object> val = (Map) arr[1];==>这个Map就是管理根据分组域创建的TridentTuple作为key,value为各个分组对应的中间结果
+
+TridentBoltExecutor implements IRichBolt是真正的bolt，用其来适配SubtopologyBolt
+
+SubtopologyBolt
+Set<Node> _nodes;
+在TridentToplogyBuilder中setBolt是假set
+BoltDeclarer d = builder.setBolt(boltIds.get(g), new SubtopologyBolt(graph, g.nodes, batchGroupMap), p,committerBatches(g, batchGroupMap), streamToGroup);
+TridentToplogyBuilder的buildTopology才真正用topologyBuilder来setBoltsetSpout，
+BoltDeclarer bd = builder.setBolt(id,new TridentBoltExecutor(
+                          new TridentSpoutExecutor(
+                            c.commitStateId,
+                            c.streamName,
+                            ((ITridentSpout) c.spout)),
+                            batchIdsForSpouts,
+                            specs),
+                        c.parallelism);
+						
+DirectedGraph _graph;
+    Set<Node> _nodes;
+    Map<String, InitialReceiver> _roots = new HashMap();==》流和List<TridentProcessor>的映射，当来了一个tuple时，通过流找到对应的所有执行器对其进行处理，
+	通过循环节点，找到每个节点的父节点将这个映射关系加到这个map中
+    Map<Node, Factory> _outputFactories = new HashMap();
+    Map<String, List<TridentProcessor>> _myTopologicallyOrdered = new HashMap();==》key是batchGroup 有序的执行器在调用finishBatch，initBatchState，cleanup方法时会依次调用每个执行器的对应方法
+    Map<Node, String> _batchGroups;
+	
+	
+	IdentityGrouping类用来表示在源端组件的Task数目与接收端组件的Task数目相同的情况 下，源端的Task与目的端的Task可以一一对应起来，
+	这与直接分组是非常类似的。 在Topology的执行优化过程中，如果两个相邻的节点组通过IdentityGrouping的方式进行了 连接，则表示它们具有相同的并行度，
+	于是会将这两个节点组合并。该类的分析如下
+	
+	它用来计算何时可以对两个节点组进行合并。 其基本思想为：如果一个节点组只有一个父节点组，那么将该节点组与其父节点组进行合并；
+	类 似地，如果一个节点组只有一个子节点组，那么将子节点组与自身节点组进行合并；反复进行这 两个过程直到没有满足以上条件的节点组为止
+	
+	_colocate 变量是一个哈 希表，其键为Stateld, 值为该State上进行操作的节点（即对State进行更新和查询的节点 )。 
+	Trident会将这两类节点放在一个节点组中同时处理，以便于State的查询与更新
+	
+流的分区操作是非常关键的，它对应于Storm中的消息分组方式。在Trident中，消息的分组
+方式是通过添加分区节点来完成的。与处理节点不同，分区节点只用来反映处理节点之间的消息接收方式，并不对应于实际的Spout或者Bolt节点
+
+分组流上的聚集操作：
+首 先 按 对 输 入 流 进 行 重 新 分 区，然后在每个分区上调 用基于分组的聚集算法。
+由于具有相同_groupedFields值的消息都已经在同一个节点上 了，所以返回的将是流对象而不是分组流对象
+
+
