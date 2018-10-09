@@ -154,7 +154,7 @@ _numTasks是并行度2，_index是消息发送节点的索引
 第4行设置Topology中的协调Spout节点。它利用TransactionalSpoutCoordinator对 ITransationalSpout中的协调Spout接口进行封装执行。
 根据之前的分析可以知道，TransactionalSpoutCoordinator实现了IRichSpout接口。 
 □ 第10-15行用于设置Topology中的消息发送节点。首先，利用TransactionalSpoutBatchExecutor对ITransactionalSpout中的消息发送接口进行封装，
-然后，再利用CoordinatedBolt进行进一步的封装。在事务Topology中执行的所有Bolt均为CoordinatedBolt类型 3
+然后，再利用CoordinatedBolt进行进一步的封装。在事务Topology中执行的所有Bolt均为CoordinatedBolt类型
 
 
 
@@ -225,3 +225,158 @@ DirectedGraph _graph;
 由于具有相同_groupedFields值的消息都已经在同一个节点上 了，所以返回的将是流对象而不是分组流对象
 
 
+IPartitionedTransactionalSpout的Coordinator的方法是numPartitions，isReady，close
+PartitionedTransactionalSpoutExecutor的Coordinator会实现ITransactionalSpout的Coordinator，对应initializeTransaction，isReady，close方法，其中会调用IPartitionedTransactionalSpout Coordinator对应的方法
+Emitter会实现ITransactionalSpout的Emitter<Integer>，在emitBatch中会循环调用IPartitionedTransactionalSpout.Emitter的emitBatch来发送多个分区的内容
+Emitter有个成员变量Map<Integer, RotatingTransactionalState> _partitionStates = new HashMap<Integer, RotatingTransactionalState>();存放每个分区的所有发送的tuple的meta信息
+RotatingTransactionalState里有个private TreeMap<BigInteger, Object> _curr = new TreeMap<BigInteger, Object>();就是存放的分区里的所有tuple对应的Meta信息
+分区执行器PartitionedTransactionalSpoutExecutor会对IPartitionedTransactionalSpout进行适配，包装其Coordinator
+public class PartitionedTransactionalSpoutExecutor implements ITransactionalSpout<Integer> {
+IPartitionedTransactionalSpout _spout;
+Emitter的emitBatch方法
+ _index = context.getThisTaskIndex();index是对应task的编号
+ for(int i=_index; i < partitions; i+=_numTasks) { 如果task编号是0，有2个task，则该bolt发送0,2,4,6,8分区
+ _emitter.emitPartitionBatch(tx, collector, partition, meta);
+ }
+
+ 
+ ----------------------------------------------------------------------------------------------
+ 通过适配器原理
+Trident的Spout都会对我们传入的spout进行适配
+ITridentSpout
+IPartitionedTridentSpout
+IOpaquePartitionedTridentSpout
+这三个Spoout是给我自定义的spout实现的，对于他们底层会用PartitionedTransactionalSpoutExecutor和OpaquePartitionedTransactionalSpoutExecutor进行适配再给底层代码调用
+其中ITridentSpout不需要适配，同时spout内部的Coordinator和Emitter也需要适配。
+适配是为了实现通一的方法，在方法实现中会调用我们自定义的方法，这样底层就相当于调用了我们的方法了，因此适配器PartitionedTransactionalSpoutExecutor和OpaquePartitionedTransactionalSpoutExecutor
+都实现了ITridentSpout接口。
+内部的Coordinator和Emitter也实现了ITridentSpout里面的Coordinator和Emitter。所以适配器的东西都实现了ITridentSpout，这样就可以当做ITridentSpout使用了
+Coordinator是initializeTransaction方法
+Emitter是emitBatch方法
+在分区事务适配器中PartitionedTridentSpoutExecutor
+Coordinator的initializeTransaction方法主要是调用用户自定义的
+getPartitionsForBatch获取每个分区的元数据
+
+只在事务第一次的时候调用emitPartitionBatchNew，为每个分区发送数据
+当重发时调用emitPartitionBatch，传入Metadata进行重传
+_emitter.getOrderedPartitions会获得分区列表，且用户要为每个分区分配一个Id。Emitter的executBatch就会每次去获取分区列表从而可以动态的增加或减少分区。最后用个for循环发送对应的分区
+Emitter为每个分区维护了一个EmitterPartitionState状态，key为分区号->分区状态，状态中会保持每个分区的Metadata
+_partitionStates.put(id, new EmitterPartitionState(new RotatingTransactionalState(_state, id), p));其中RotatingTransactionalState会帮助用户在ZK上创建一个分区节点，节点名为分区号
+将每个分区的Metadata写入对应分区节点里，Metadata由emitPartitionBatchNew产生
+RotatingTransactionalState是为每个分区服务的，缓存了每个事务对应的分区状态，所以内部有个Map:txid->分区的Metadata,这个是为重传以及获取上一次的状态作为参数传入emitPartitionBatchNew
+而Emitter是为每个Batch服务的，所以内部缓存了当前事务所有分区对应的分区状态，即内部有个Map:分区Id->EmitterPartitionState(RotatingTransactionalState)
+Map<String, EmitterPartitionState> _partitionStates = new HashMap<String, EmitterPartitionState>();就是方便下次重传时直接使用而不用在次获取分区状态
+循环这个Map,就可以得到每个分区，再根据现在所处的事务，就可以得到在分区中该事务需要的Metadata,即分区Id->EmitterPartitionState->RotatingTransactionalState->再通过txid->分区的Metadata
+
+Emitter仓库管理员管理了当前的任务号，以及仓库和其联络员的Map,当我们的任务(事务)第一次来的时候，会先看手中上一个存档的单号_savedCoordinatorMeta和这次传入的是否是同一个，如果是就说明是重发，
+如果不是就说明该任务(事务)是第一次，那么先去问问甘小姐，得到仓库列表(调用Emitter的getOrderedPartitions(coordinatorMeta)分区列表)主要是仓库号(分区Id)列表，
+再为每个仓库(分区)分配一个zk联络员，最后会挨个询问联络员他管的仓库的metadata,如果是第一次该任务第一次来，就不会有其对应的Metadata,先会在记录里找到上一个任务对应的Meta,作为参数传入甘小姐Emitter的emitPartitionBatchNew生成Metadata。
+并发送出去(_emitter.emitPartitionBatchNew(tx, collector, partition, lastState)),并将metadata记录下来，再将每个仓库和联络员，注册到仓库管理员那里。
+如果直接问就有，说明是任务重发，就直接派发(_emitter.emitPartitionBatch(tx, collector, partition, meta))。
+每次任务都会解雇掉所有的联络员，所以创建联络员的时候会先去zk那里同步老联络员的小本本，每次都创建是因为怕甘小姐家的仓库变多了或减少了会动态变化，
+这也方便了如果仓库管理员消失了，找不到联络员，因为我们直接新招聘。
+-spout/partition1/tx1
+-spout/partition1/tx2
+-spout/partition1/tx3
+-spout/partition1/tx4
+每次是事务重发，所以以tx为子节点
+
+
+ MasterBatchCoordinator extends BaseRichSpout
+ PartitionNode有个Grouping
+Grouping x = new Grouping();
+x.set_fields(value);
+
+且分组流上进行的操作都是以分组的列作为聚合单位的。 分组流是多流操作的核心，最终会通过添加分区节点的方式转换成为流。
+在Trident底层，将 通过域分组方式（Fields Grouping ) 完成，域分组所采用的域即为分组流的域，这样具有相同分 组域的消息就可以到达相同的节
+
+分组流的partitionAggregate操作是利用GroupedAggregator来完成的。该聚集器会首先调用_ gr0UpFieldS对输人消息进行分组，然后在分组后的集合上调用聚集器agg
+先分区再调用
+
+发射器内部都保存了单个处理器的上下文(TridentContext)和所有处理节点的上下文(ProcessorContext)
+TridentContext _triContext;
+ProcessorContext context;
+FreshCollector的emit会直接读取tupleReceiver，调用其execute方法
+CaptureCollector的只是将消息放入缓存
+GroupCollector 发送分组域和要发的value组成的list
+AppendCollector 将输出列加到输入列，再直接调用tupleReceiver的execute方法
+AddldCollector 只是为我们发射的tuple添加txid第一列
+
+处理器：协调事务和bolt的各个时期，相应调用下层的方法，为其传入在上层缓存的结果，创建Tuple,缓存tuple
+□ TupleReceiver：对基本的消息处理进行抽象。 
+□ TridentProcessor：对基本的事务消息处理进行抽象 
+□ EachProcessor：会对消息进行逐条处理的处理节点。
+□ ProjectedProcessor: 对映射消息进行操作的处理节点。
+□ PartitionPersistProcessor: 分区存储的处理节点，它会将数据存储于State对象中。
+□ StateOueryProcessor: State查询处理节点，主要用于DRPC。 □ MultiReducerProcessor: 处理多流情况的TridentProcessor
+TridentProcessor有事务周期和bolt周期方法
+开始事务时调用startBatch
+收到消息时调用execute
+结束事务时调用finishBatch
+bolt创建时调用prepare
+bolt销毁时调用cleanup
+
+PartitionPersistProcessor:
+FreshCollector,emit会直接调用tupleReceiver的execute方法
+ProjectionFactory
+State对象存在从Topology Context上下文对象中，通过_stateId得到。初始化SubTopologyBolt时，对state对象进行了集中的创建， 
+在startBatch中对Topology Context上下文的状态对象(processorContext.state[_context.getStateIndex())进行实例化，是一个list= new ArrayList<TridentTuple>() 
+在execute中为每个输入生成输入Tuple缓存在Topology Context上下文的的状态对象中(processorContext.state[_context.getStateIndex())
+在finishBatch中才对这些tuple进行处理，开启commit,进行更新，commit,批处理思想，在finishBatch才进行统一更新
+			_state.beginCommit(txid);
+            _updater.updateState(_state, buffer, _collector);
+            _state.commit(txid);
+			
+StateOueryProcessor和PartitionPersistProcessor相对，两个将放在一个bolt内执行
+AppendCollector 将输出列加到输入列，再直接调用tupleReceiver的execute方法
+同理在finishBatch中调用OueryFunctionfunction的execute方法
+
+AggregateProcessor
+FreshCollector 
+startBatch中调用Aggregator的init方法,并将结果存在processorContext.state[_context.getStateIndex()]中
+execute中调用Aggregator的aggregate方法,中间值从processorContext.state[_context.getStateIndex()]中取回。需要传入colletor，因为可能需要把消息发出去
+finishBatch中调用Aggregator的complete方法，需要传入colletor，因为可能需要把消息发出去
+例如其CombinerAggregatorCombineImpl(是对用户的CombinerAggregator适配器)的init的结果是个Result对象，所以这个对象就保存在processorContext.state[_context.getStateIndex()]中。
+Result.value就是保存我们自己的value
+
+
+AggregateProcessor->内部是GroupedAggregator->再GroupedAggregator的内部是CombinerAggregatorCombineImpl
+当调用startBatch->调用GroupedAggregator的init,返回new Object[] {new GroupCollector(collector, _fact), new HashMap(), batchId}，这个会缓存在processorContext.state[_context.getStateIndex()]中
+当调用execute,拿到缓存传入->调用GroupedAggregator的aggregate->从processorContext.state[_context.getStateIndex()]中拿到GroupCollector和该tuple所属组对应的中间结果传入->CombinerAggregatorCombineImpl的aggregate，这里不会emit
+当调用finishBatch,拿到缓存传入->GroupedAggregator的complete->为每个分组调用_agg.complete(分组对应的中间值, groupColl);在整个batch处理完毕才会emit
+
+EachProcessor
+AppendCollector
+startBatch空
+execute：为每个tuple调用_function.execute
+finishBatch空
+
+ProjectedProcessor
+没有Collector
+startBatch空
+execute：挨个执行处理器的execute
+		for(TupleReceiver r: _context.getReceivers()) {
+            r.execute(processorContext, _context.getOutStreamId(), toEmit);
+        }
+finishBatch空
+在processor中构建的tridentTuple都是TridentTupleView，
+内含ValuePointer[] _index;-->通过index找到索引指针
+    Map<String, ValuePointer> _fieldIndex;->通过field名找到索引指针
+    IPersistentVector _delegates;-->通过索引指针中的层索引和index在该List<List<Object>>中找到value
+
+	
+ProcessorContext：保存了每个处理器的缓存结果，实现了数据在各处理器间的共享。创建的一个对象，传入该bolt上所有的TridentProcessor的startBatch
+public Object batchld; 
+public Object[] state;
+
+TridentContext单个处理节点的上下文
+□ selfFields为该处理节点新产生的列。 
+□ parentFactories和parentStreams分别为该节点的父节点的消息模式和消息对应的流。 
+口 receivers表明哪些处理节点将接收该节点产生的消息。 
+□ outStreamld为该节点的输出消息流
+□ statelndex为该处理节点的编号，为SubTopologyBolt中的统一编号， 
+□ collector用来向外发送消息
+
+10个分区
+task1:0,2,4,6,8,10
+task2:1,3,5,7,9
