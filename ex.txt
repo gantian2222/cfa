@@ -1,0 +1,93 @@
+{b-0=storm.trident.topology.TridentTopologyBuilder$Component@2f9a10df[
+  bolt=storm.trident.planner.SubtopologyBolt@15e1f8fe
+  parallelism=1
+  declarations=[storm.trident.topology.TridentTopologyBuilder$BoltDeclarerImpl$17@110b7837]
+  componentConfs=[]
+  committerBatches=[]
+], b-2=storm.trident.topology.TridentTopologyBuilder$Component@6ee88e21[
+  bolt=storm.trident.planner.SubtopologyBolt@78d23d6a
+  parallelism=1
+  declarations=[storm.trident.topology.TridentTopologyBuilder$BoltDeclarerImpl$17@626e0c86]
+  componentConfs=[]
+  committerBatches=[bg0]
+], b-1=storm.trident.topology.TridentTopologyBuilder$Component@28ee0a3c[
+  bolt=storm.trident.planner.SubtopologyBolt@2dd1086
+  parallelism=1
+  declarations=[storm.trident.topology.TridentTopologyBuilder$BoltDeclarerImpl$17@6b8d54da]
+  componentConfs=[]
+  committerBatches=[]
+]}
+
+{$mastercoord-bg0=storm.trident.topology.MasterBatchCoordinator@2c3158e0}
+
+[
+spout0=storm.trident.topology.TridentBoltExecutor@1c046c92, 
+b-2=storm.trident.topology.TridentBoltExecutor@79957f11, 
+b-1=storm.trident.topology.TridentBoltExecutor@217235f5, 
+$spoutcoord-spout0=backtype.storm.topology.BasicBoltExecutor@643ba1ed]
+
+spout==>$mastercoord-bg0
+streams:{
+		$batch=StreamInfo(output_fields:[tx], direct:false)
+	$commit=StreamInfo(output_fields:[tx], direct:false)
+	$success=StreamInfo(output_fields:[tx], direct:false)
+}
+parallelism_hint:0
+
+bolt==>$spoutcoord-spout0
+	ComponentCommon(
+	inputs:{
+		GlobalStreamId(componentId:$mastercoord-bg0, streamId:$success)=<Grouping fields:[]> 
+		GlobalStreamId(componentId:$mastercoord-bg0, streamId:$batch)=<Grouping fields:[]>
+	streams:{
+		$batch=StreamInfo(output_fields:[tx, metadata], direct:false)
+	parallelism_hint:0, json_conf:{"topology.tick.tuple.freq.secs":5})
+	
+bolt==>spout0
+ComponentCommon(
+	inputs:{
+		GlobalStreamId(componentId:$mastercoord-bg0, streamId:$success)=<Grouping all:NullStruct()>, 
+		GlobalStreamId(componentId:$spoutcoord-spout0, streamId:$batch)=<Grouping all:NullStruct()>
+		}, 
+	streams:{s1=StreamInfo(output_fields:[$tx, tx, val], direct:false), 
+			$coord-bg0=StreamInfo(output_fields:[id, count], direct:true)}, 
+	parallelism_hint:1, json_conf:{"topology.tick.tuple.freq.secs":5})
+
+bolt==>b-2
+ComponentCommon(
+inputs:{
+	GlobalStreamId(componentId:spout0, streamId:s1)=<Grouping custom_serialized:AC ED 00 05 73 72 00 28 73 74 6F 72 6D 2E 74 72 69 64 65 6E 74 2E 70 61 72 74 69 74 69 6F 6E 2E 49 64 65 6E 74 69 74 79 47 72 6F 75 70 69 6E 67 B7 86 CC D0 2F 49 C4 E4 02 00 02 4C 00 0C 5F 70 72 65 63 6F 6D 70 75 74 65 64 74 00 0F 4C 6A 61 76 61 2F 75 74 69 6C 2F 4D 61 70 3B 4C 00 03 72 65 74 74 00 10 4C 6A 61 76 61 2F 75 74 69 6C 2F 4C 69 73 74 3B 78 70 73 72 00 11 6A 61 76 61 2E...>GlobalStreamId(componentId:spout0, streamId:s1)=<Grouping custom_serialized:AC ED 00 05 73 72 00 28 73 74 6F 72 6D 2E 74 72 69 64 65 6E 74 2E 70 61 72 74 69 74 69 6F 6E 2E 49 64 65 6E 74 69 74 79 47 72 6F 75 70 69 6E 67 B7 86 CC D0 2F 49 C4 E4 02 00 02 4C 00 0C 5F 70 72 65 63 6F 6D 70 75 74 65 64 74 00 0F 4C 6A 61 76 61 2F 75 74 69 6C 2F 4D 61 70 3B 4C 00 03 72 65 74 74 00 10 4C 6A 61 76 61 2F 75 74 69 6C 2F 4C 69 73 74 3B 78 70 73 72 00 11 6A 61 76 61 2E...>, GlobalStreamId(componentId:spout0, streamId:$coord-bg0)=<Grouping direct:NullStruct()>}, streams:{s2=StreamInfo(output_fields:[$batchId, tx, val, jiou], direct:false),
+	GlobalStreamId(componentId:spout0, streamId:$coord-bg0)=<Grouping direct:NullStruct()>	
+	}
+streams:{
+	s2=StreamInfo(output_fields:[$batchId, tx, val, jiou], direct:false), 
+	$coord-bg0=StreamInfo(output_fields:[id, count], direct:true)
+	}
+
+bolt==>b-0
+	ComponentCommon(
+	inputs:{
+		GlobalStreamId(componentId:b-2, streamId:$coord-bg0)=<Grouping direct:NullStruct()>, 
+		GlobalStreamId(componentId:b-2, streamId:s2)=<Grouping fields:[jiou]>}, 
+	streams:{
+		s3=StreamInfo(output_fields:[$batchId, tx, val, jiou, count], direct:false), 
+		s4=StreamInfo(output_fields:[$batchId, jiou, count], direct:false), 
+		$coord-bg0=StreamInfo(output_fields:[id, count], direct:true)}, 
+	parallelism_hint:1, json_conf:{"topology.tick.tuple.freq.secs":5})
+	
+bolt==>b-1
+ComponentCommon(
+	inputs:{
+		GlobalStreamId(componentId:$mastercoord-bg0, streamId:$commit)=<Grouping all:NullStruct()>
+		GlobalStreamId(componentId:b-0, streamId:$coord-bg0)=<Grouping direct:NullStruct()>
+		GlobalStreamId(componentId:b-0, streamId:s4)=<Grouping fields:[jiou]>
+	streams:{
+		s5=StreamInfo(output_fields:[$batchId, jiou, count], direct:false)
+		s6=StreamInfo(output_fields:[$batchId, jiou, count], direct:false)
+		$coord-bg0=StreamInfo(output_fields:[id, count], direct:true)
+	parallelism_hint:1, json_conf:{"topology.tick.tuple.freq.secs":5})
+	
+
+	
+
+	
