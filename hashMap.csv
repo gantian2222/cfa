@@ -1,0 +1,34 @@
+数组大小保持为 2 的 n 次方的做法，Java7 和 Java8 的 HashMap 和 ConcurrentHashMap 都有相应的要求，只不过实现的代码稍微有些不同。
+hashMap 1.7vs 1.8
+1.1.8引入了红黑树
+2.put时1.7是hash取模，1.8容量是2的幂次，所以可以高16位和低16位作与运算。再取模。扩容时，1.7是重新计算hash值，且会倒置。1.8 2的幂次扩容，hash值与size高位作与运算，0则不动，1则换到cur+oldSize.不会倒置
+3.1.7是头插法,1.8是添加到末尾
+4.扩容时：1.7是头插法，所以会导致死循环问题。
+		  1.8两个链表，高位1和0。依次添加不改变顺序。然后将链表移到对应位置。
+5.都是 fail-fast
+	if (modCount != expectedModCount)
+                throw new ConcurrentModificationException();
+
+
+
+ConcurrentHashMap 1.7vs 1.8
+1.8中放弃了Segment臃肿的设计，取而代之的是采用Node + CAS + Synchronized来保证并
+1.1.7是对Segment 上锁，Segment extends ReentrantLock,每个Segment有个阈值。
+2.1.7的 segment hash是hashcode 是 32 位，无符号右移 segmentShift(28) 位，剩下低 4 位，然后取模（和 segmentMask(15) 做一次与操作）
+  1.8是高16位和低16位作与运算。再取模，和HashMap的1.8版本一致，所以高低位运算是1.8都有的
+3.添加节点都是添加到表头因为是通过new Node<K,V>(hash, key, value, head);head是链表的头节点
+4.size 1.7是因为segment的count和modcount是vilatile的，进行三次累加count和modcount，前后两次modcount一样则在计算期间没有发生更改，不然就获取所有segment的锁来计算，强一致性。
+       1.8的count是vilatile，count是全局的，但是每次上锁是对一个头节点上锁，所以会有其他线程同时更改count，因此pu't元素或删除元素时，是通过cas更新该值，如果失败则存入counterCells中，
+	   最后计算size时是通过累加baseCount和CounterCell数组中的数量，即可得到元素的总个数。CounterCell里面的Value是volatile的。弱一致性
+5.扩容时
+		1.8两个链表，高位1和0。都是头插入法，然后将链表移到对应位置。因为是通过new Node<K,V>(ph, pk, pv, hn);hn是链表的头节点。
+
+
+hashMap 扩容死循环问题
+头部插入
+线程一cur=a,next=b
+线程二完成：头->b>a>null
+线程一执行：头->a->null，cur=b,next=a，通过线程一确定的
+			头->b->a->null，cur=next=a,next=null	
+			头->a->b->a,cur=next=null,扩容结束，所以可以看见成环了，在进行get操作或put操作读取时就会死循环
+
