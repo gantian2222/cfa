@@ -1,7 +1,7 @@
 数组大小保持为 2 的 n 次方的做法，Java7 和 Java8 的 HashMap 和 ConcurrentHashMap 都有相应的要求，只不过实现的代码稍微有些不同。
 hashMap 1.7vs 1.8
 1.1.8引入了红黑树
-2.put时1.7是hash取模，1.8容量是2的幂次，所以可以高16位和低16位作与运算。再取模。扩容时，1.7是重新计算hash值，且会倒置。1.8 2的幂次扩容，hash值与size高位作与运算，0则不动，1则换到cur+oldSize.不会倒置
+2.put时1.7是hash函数后取模，1.8容量是2的幂次，将key的hashcode高16位和低16位作与运算。再取模。扩容时，1.7是重新计算hash值，且会倒置。1.8 2的幂次扩容，hash值与size高位作与运算，0则不动，1则换到cur+oldSize.不会倒置
 3.1.7是头插法,1.8是添加到末尾
 4.扩容时：1.7是头插法，所以会导致死循环问题。
 		  1.8两个链表，高位1和0。依次添加不改变顺序。然后将链表移到对应位置。
@@ -16,14 +16,20 @@ ConcurrentHashMap 1.7vs 1.8
 1.1.7是对Segment 上锁，Segment extends ReentrantLock,每个Segment有个阈值。
 2.1.7的 segment hash是hashcode 是 32 位，无符号右移 segmentShift(28) 位，剩下低 4 位，然后取模（和 segmentMask(15) 做一次与操作）
   1.8是高16位和低16位作与运算。再取模，和HashMap的1.8版本一致，所以高低位运算是1.8都有的
-3.添加节点都是添加到表头因为是通过new Node<K,V>(hash, key, value, head);head是链表的头节点
+3.1.7是头插入node = new HashEntry<K,V>(hash, key, value, first);UNSAFE.putOrderedObject(tab, ((long)i << TSHIFT) + TBASE, e);暂时设置在缓存中，等到unlock时再写回。
+   1.8是添加到末尾pred.next = new Node<K,V>(hash, key,value, null);
 4.size 1.7是因为segment的count和modcount是vilatile的，进行三次累加count和modcount，前后两次modcount一样则在计算期间没有发生更改，不然就获取所有segment的锁来计算，强一致性。
        1.8的count是vilatile，count是全局的，但是每次上锁是对一个头节点上锁，所以会有其他线程同时更改count，因此pu't元素或删除元素时，是通过cas更新该值，如果失败则存入counterCells中，
 	   最后计算size时是通过累加baseCount和CounterCell数组中的数量，即可得到元素的总个数。CounterCell里面的Value是volatile的。弱一致性
 5.扩容时
-		1.8两个链表，高位1和0。都是头插入法，然后将链表移到对应位置。因为是通过new Node<K,V>(ph, pk, pv, hn);hn是链表的头节点。
-
-
+		1.7 只复制前半截，rehash方法中会定位第一个后续所有节点在扩容后index都保持不变的节点，然后将这个节点之前的所有节点重排即可。先将新index指向后半截（newTable[lastIdx] = lastRun），再前半截通过头插法移到新位置index处，因为是对segment上锁所以每次头插无所谓。
+		1.8 只复制前半截，两个链表，高位1和0。都是头插入法，然后将链表移到对应位置。因为是通过new Node<K,V>(ph, pk, pv, hn);hn是链表的头节点。先构建链表，因为是锁住头节点，所以每次头插的话效率太低。
+6.remove和put1.8是通过unsafe读取头结点，然后对头结点上锁synchronized，上锁后会再次通过unsafe判断头结点是否发生改变，如果改变则重复前面的过程。直到不变再继续操作。
+  1.7，1.8的remove是直接将前一个节点的next指向后一个节点。
+  1.7UNSAFE.putOrderedObject(this, nextOffset, n);
+  1.8U.putObjectVolatile(tab, ((long)i << ASHIFT) + ABASE, v);
+  1.8的put是加在链表尾部
+  1.7头插node = new HashEntry<K,V>(hash, key, value, first);
 hashMap 扩容死循环问题
 头部插入
 线程一cur=a,next=b
@@ -31,4 +37,19 @@ hashMap 扩容死循环问题
 线程一执行：头->a->null，cur=b,next=a，通过线程一确定的
 			头->b->a->null，cur=next=a,next=null	
 			头->a->b->a,cur=next=null,扩容结束，所以可以看见成环了，在进行get操作或put操作读取时就会死循环
+
+“初始化”，类是在首次主动使用的时候进行初始化，那他是什么时候加载的呢？
+类的加载并不需要到该类或接口被首次主动使用的时候才加载，JVM规范允许类加载器在预料到 9某个类将要被使用时就预先加载它
+
+put
+1.7 都是头插
+1.8 都是插入到尾部
+resize
+1.7 头插新节点。hashMap是重新计算hash值，concurrentHashMap是下半截直接挪，前半截复制节点并头插
+1.8都是通过构建两个链表，再将链表设置到新位置
+// 如果 sizeCtl 无符号右移 16 不等于 rs （ sc前 16 位如果不等于标识符，则标识符变化了） 
+// 或者 sizeCtl == rs + 1 （扩容结束了，不再有线程进行扩容）（默认第一个线程设置 sc ==rs 左移 16 位 + 2，当第一个线程结束扩容了，就会将 sc 减一。这个时候，sc 就等于 rs + 1） 
+// 或者 sizeCtl == rs + 65535 （如果达到最大帮助线程的数量，即 65535） 
+// 或者转移下标正在调整 （扩容结束） 
+// 结束循环，返回 table
 
